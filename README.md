@@ -1,0 +1,1 @@
+Numerical Simulation of the 1D Wave Equation Under Multiple Physical and Boundary Conditions
