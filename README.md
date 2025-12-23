@@ -52,8 +52,8 @@ Numerical solver for the 1D wave equation with selectable boundary conditions, w
 - Python 3.10+ packages: `numpy`, `matplotlib`, `pillow` (visualization and GIF fallback). Install via:
 ```sh
  `pip install numpy matplotlib pillow`.
-- Optional: `ffmpeg` on PATH for MP4 animation output; if missing, GIFs are produced via Pillow.
 ```
+- Optional: `ffmpeg` on PATH for MP4 animation output; if missing, GIFs are produced via Pillow.
 ### Building and Running
 Prerequisites: gfortran (or a compatible Fortran compiler), Python 3.10+ with numpy/matplotlib for visualization.
 
