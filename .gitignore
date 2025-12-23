@@ -1,3 +1,10 @@
 description.md
+# Fortran build artifacts
 *.exe
 *.mod
+*.o
+*.obj
+/Fortran/src/*.exe
+
+# Python run artifacts
+/Python/outputs/
