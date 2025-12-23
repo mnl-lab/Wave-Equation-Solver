@@ -45,7 +45,7 @@ Numerical solver for the 1D wave equation with selectable boundary conditions, w
 	- [Python/visualize.py](Python/visualize.py): snapshot/energy plotting, optional animations and convergence plots.
 	- [Python/input.json](Python/input.json): example parameter file (Dirichlet, CFL=0.9, dx=0.01).
 - Reports and figures
-	- [Python/outputs/](Python/outputs/) contains timestamped run artifacts; add `little_demo.gif` here when available.
+	- [Python/outputs/](Python/outputs/) contains timestamped run artifacts (snapshots `*snapshot_*.csv`, energy logs `*energy*.csv`, generated plots/animations); add `little_demo.gif` here when available.
 
 ### Building and Running
 Prerequisites: gfortran (or a compatible Fortran compiler), Python 3.10+ with numpy/matplotlib for visualization.
@@ -73,6 +73,8 @@ Steps performed:
 3) Write a schema-stable `input.json` into a timestamped `outputs/run-...` folder.
 4) Build the appropriate Fortran executable if it is not present, then run it.
 5) Auto-visualize snapshots/energy if produced.
+
+Outputs location: after each run, all artifacts (input copy, snapshots, energy CSV, plots) are placed under [Python/outputs/](Python/outputs/) in a timestamped subfolder such as `run-s1-nx200-dx0p01-dt0p009-f10-YYYYMMDD-HHMMSS/`.
 
 **Programmatic run (bypassing the TUI):**
 ```python
