@@ -1,12 +1,9 @@
 """Text-based user interface for configuring the wave equation solver.
 
-Prompts the user for scenario selection and numerical parameters, validates the
-inputs, and forwards them to the Fortran runner. The prompts follow the design
-outlined in description.md: scenarios 1-4 with explicit CFL control and three
-time layers. The time step ``dt`` is always inferred from CFL guidance and is
-not entered manually. Scenario-specific prompts are shown only when needed
-(e.g., damping ``gamma`` only for scenario 4); unused fields are still written
-to JSON with placeholder values to keep the schema stable.
+Prompts the user for scenario selection (Dirichlet or Neumann), validates the
+inputs, and forwards them to the Fortran runner. The time step ``dt`` is always
+inferred from CFL guidance and is not entered manually. Unused fields are kept
+minimal for now to match the current two-scenario setup.
 """
 
 from __future__ import annotations
@@ -114,19 +111,17 @@ def _coerce_t_final_multiple(t_final: float, dt: float) -> float:
 
 
 def _prompt_scenario() -> int:
-    """Ask the user for a scenario ID between 1 and 4."""
+    """Ask the user for a scenario ID between 1 and 2."""
 
     while True:
-        raw = input(
-            "Select scenario (1=Dirichlet, 2=Neumann, 3=Variable c(x), 4=Damped): "
-        ).strip()
+        raw = input("Select scenario (1=Dirichlet, 2=Neumann): ").strip()
         try:
             scenario = int(raw)
         except ValueError:
-            print("Scenario must be an integer between 1 and 4.")
+            print("Scenario must be an integer between 1 and 2.")
             continue
-        if scenario not in {1, 2, 3, 4}:
-            print("Scenario must be between 1 and 4.")
+        if scenario not in {1, 2}:
+            print("Scenario must be between 1 and 2.")
             continue
         return scenario
 
@@ -159,12 +154,7 @@ def collect_parameters() -> Dict[str, Any]:
         "Final time T_final", default=defaults.t_final, min_value=dt
     )
     t_final = _coerce_t_final_multiple(t_final, dt)
-    if scenario_id == 4:
-        gamma = _prompt_float(
-            "Damping gamma (scenario 4)", default=defaults.gamma, min_value=0.0
-        )
-    else:
-        gamma = 0.0  # placeholder for unused damping parameter
+    gamma = 0.0  # damping not used in scenarios 1-2
 
     # Force CSV output to match visualization expectations
     output_type = "csv"
@@ -177,22 +167,7 @@ def collect_parameters() -> Dict[str, Any]:
         "Enable logging to timestamped folder?", default=defaults.logging_enabled
     )
 
-    if scenario_id == 3:
-        c_profile_raw = input(
-            "Optional c(x) profile (expression or comma-separated values) [constant]: "
-        ).strip()
-        if c_profile_raw == "":
-            c_profile: List[float] | str = []
-        elif "," in c_profile_raw:
-            try:
-                c_profile = [float(item) for item in c_profile_raw.split(",")]
-            except ValueError:
-                print("Could not parse numbers; defaulting to constant profile.")
-                c_profile = []
-        else:
-            c_profile = c_profile_raw  # keep expression as string
-    else:
-        c_profile = []
+    c_profile: List[float] | str = []  # variable c(x) not used in scenarios 1-2
 
     overrides: Dict[str, Any] = {
         "scenario_id": scenario_id,

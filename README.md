@@ -47,6 +47,11 @@ Numerical solver for the 1D wave equation with selectable boundary conditions, w
 - Reports and figures
 	- [Python/outputs/](Python/outputs/) contains timestamped run artifacts (snapshots `*snapshot_*.csv`, energy logs `*energy*.csv`, generated plots/animations); add `little_demo.gif` here when available.
 
+### Dependencies
+- Fortran toolchain: `gfortran` (or compatible) on PATH to build solver executables.
+- Python 3.10+ packages: `numpy`, `matplotlib`, `pillow` (visualization and GIF fallback). Install via `pip install numpy matplotlib pillow`.
+- Optional: `ffmpeg` on PATH for MP4 animation output; if missing, GIFs are produced via Pillow.
+
 ### Building and Running
 Prerequisites: gfortran (or a compatible Fortran compiler), Python 3.10+ with numpy/matplotlib for visualization.
 
@@ -68,7 +73,7 @@ gfortran -O2 solver_core.f90 input_io.f90 initial_conditions.f90 bc_neumann.f90 
 ./solver_dirichlet.exe input.json   # or .\solver_dirichlet.exe on Windows
 ```
 Steps performed:
-1) Prompt for scenario (1=Dirichlet, 2=Neumann, 3=variable c(x), 4=damped) and numerical parameters.
+1) Prompt for scenario (1=Dirichlet, 2=Neumann) and numerical parameters.
 2) Enforce CFL guidance and adjust `t_final` to be an integer multiple of `dt`.
 3) Write a schema-stable `input.json` into a timestamped `outputs/run-...` folder.
 4) Build the appropriate Fortran executable if it is not present, then run it.
@@ -85,7 +90,7 @@ print(result["run_dir"], result["outputs"])
 ```
 
 ### Configuring Parameters
-- Key fields (JSON/TUI): `scenario_id`, `nx`, `dx`, `L`, `wave_speed` (or `c_max`), `cfl`, `t_final`, `output_frequency`/`snapshot_freq`, optional `c_profile` (scenario 3) and `gamma` (scenario 4).
+- Key fields (JSON/TUI): `scenario_id` (1=Dirichlet, 2=Neumann), `nx`, `dx`, `L`, `wave_speed` (or `c_max`), `cfl`, `t_final`, `output_frequency`/`snapshot_freq`.
 - Time step: `dt` is inferred from CFL in the Python front-end (`dt = cfl * dx / c_max` or `wave_speed`); if you edit `dt` manually in `input.json`, ensure $c\, dt / dx \le 1$.
 - Outputs: snapshots every `snapshot_freq` steps; energy log when snapshots are taken.
 - Run folders: created as `outputs/run-s<scenario>-nx<...>-dx<...>-dt<...>-f<freq>-YYYYMMDD-HHMMSS/` with input and generated CSVs inside.
