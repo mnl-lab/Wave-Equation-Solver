@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from datetime import datetime
@@ -23,11 +24,59 @@ DEFAULT_INPUT_FILENAME = "input.json"
 DEFAULT_OUTPUT_ROOT = Path(__file__).resolve().parent / "outputs"
 
 
-def _ensure_run_directory(logging_enabled: bool) -> Path:
-    """Select a run directory under outputs/ to keep artifacts separate from code."""
+def _float_token(value: Any) -> str:
+    """Short, filename-safe token for float-like values."""
 
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S") if logging_enabled else "latest"
-    run_dir = DEFAULT_OUTPUT_ROOT / f"run-{timestamp}"
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return "x"
+    text = f"{num:.4g}"  # keep it short but informative
+    return text.replace(".", "p").replace("-", "m")
+
+
+def _sanitize_token(value: str) -> str:
+    """Remove characters that are awkward in file or directory names."""
+
+    token = re.sub(r"[^A-Za-z0-9_-]", "-", value)
+    token = re.sub(r"-{2,}", "-", token).strip("-")
+    return token or "run"
+
+
+def _build_run_label(params: Dict[str, Any]) -> str:
+    """Construct a concise label using scenario and key numerics."""
+
+    parts: List[str] = []
+
+    scenario = params.get("scenario_id")
+    if scenario is not None:
+        parts.append(f"s{scenario}")
+
+    nx = params.get("nx")
+    if nx:
+        parts.append(f"nx{nx}")
+
+    dx = params.get("dx")
+    if dx is not None:
+        parts.append(f"dx{_float_token(dx)}")
+
+    dt = params.get("dt")
+    if dt is not None:
+        parts.append(f"dt{_float_token(dt)}")
+
+    freq = params.get("output_frequency") or params.get("snapshot_freq")
+    if freq:
+        parts.append(f"f{freq}")
+
+    label = "-".join(parts) or "run"
+    return _sanitize_token(label)
+
+
+def _ensure_run_directory(run_label: str) -> Path:
+    """Select a unique run directory under outputs/ using label + timestamp."""
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_dir = DEFAULT_OUTPUT_ROOT / f"run-{run_label}-{timestamp}"
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir
 
@@ -62,7 +111,8 @@ def run_solver(
         RuntimeError: If the solver process exits with a non-zero status.
     """
 
-    run_dir = _ensure_run_directory(bool(params.get("logging_enabled", False)))
+    run_label = _build_run_label(params)
+    run_dir = _ensure_run_directory(run_label)
     input_path = write_input_file(params, output_dir=run_dir)
 
     solver_candidate = _resolve_executable(executable, executable_path)
@@ -82,10 +132,12 @@ def run_solver(
         )
         raise RuntimeError(err_msg) from exc
 
+    _rename_run_outputs(run_dir, run_label)
     outputs = parse_output_files(run_dir)
     result: Dict[str, Any] = {
         "status": "success",
         "schema_version": SCHEMA_VERSION,
+        "run_label": run_label,
         "input_path": str(input_path),
         "run_dir": str(run_dir),
         "stdout": completed.stdout,
@@ -136,6 +188,25 @@ def _resolve_executable(executable: str, executable_path: Optional[Path]) -> Pat
         f"Tried: {tried}. "
         "Set WAVE_SOLVER_EXE, pass executable_path, or add to PATH."
     )
+
+
+def _rename_run_outputs(run_dir: Path, run_label: str) -> None:
+    """Attach the run label to solver-generated files to avoid clobbering."""
+
+    # Snapshots
+    for path in run_dir.glob("snapshot_*.csv"):
+        if path.name.startswith(f"{run_label}_snapshot_"):
+            continue
+        stem = path.stem  # snapshot_10 -> snapshot_10
+        suffix = stem.split("_", maxsplit=1)[-1]
+        target = run_dir / f"{run_label}_snapshot_{suffix}.csv"
+        path.rename(target)
+
+    # Energy log
+    energy_path = run_dir / "energy.csv"
+    if energy_path.exists() and not energy_path.name.startswith(run_label):
+        target = run_dir / f"{run_label}_energy.csv"
+        energy_path.rename(target)
 
 
 def parse_output_files(run_dir: Path) -> Dict[str, Any]:
