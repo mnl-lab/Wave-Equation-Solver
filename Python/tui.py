@@ -227,7 +227,7 @@ def main() -> None:
         print(f"  {key}: {value}")
 
     # Placeholder: additional validation or pre-processing can be added here.
-    result = run_solver(params, executable="../Fortran/src/wave_solver.exe")
+    result = run_solver(params)
 
     print("\nRun result summary:")
     for key in ["status", "run_dir", "input_path", "schema_version"]:

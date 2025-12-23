@@ -15,13 +15,34 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from config import SCHEMA_VERSION
 
 
 DEFAULT_INPUT_FILENAME = "input.json"
 DEFAULT_OUTPUT_ROOT = Path(__file__).resolve().parent / "outputs"
+EXECUTABLE_DIR = Path(__file__).resolve().parent.parent / "Fortran" / "src"
+SCENARIO_EXECUTABLES: Dict[int, str] = {
+    1: "solver_dirichlet.exe",
+    2: "solver_neumann.exe",
+}
+SCENARIO_SOURCES: Dict[int, List[str]] = {
+    1: [
+        "solver_core.f90",
+        "input_io.f90",
+        "initial_conditions.f90",
+        "bc_dirichlet.f90",
+        "scenario1_dirichlet.f90",
+    ],
+    2: [
+        "solver_core.f90",
+        "input_io.f90",
+        "initial_conditions.f90",
+        "bc_neumann.f90",
+        "scenario2_neumann.f90",
+    ],
+}
 
 
 def _float_token(value: Any) -> str:
@@ -96,26 +117,48 @@ def write_input_file(
     return output_path
 
 
+def _extract_scenario_id(params: Dict[str, Any]) -> int:
+    """Obtain a scenario id from the parameter dictionary."""
+
+    candidate = params.get("scenario_id") or params.get("scenario")
+    if candidate is None:
+        raise ValueError("scenario_id is required to choose the solver executable.")
+
+    try:
+        return int(candidate)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"scenario_id must be an integer; received {candidate!r}."
+        ) from exc
+
+
 def run_solver(
     params: Dict[str, Any],
     *,
-    executable: str = "wave_solver",
+    executable_map: Optional[Dict[int, str]] = None,
+    executable_override: Optional[str] = None,
     executable_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    """Write parameters and invoke the Fortran solver.
-
-    Returns a result dictionary with stdout/stderr and discovered outputs.
-
-    Raises:
-        FileNotFoundError: If the solver executable cannot be located.
-        RuntimeError: If the solver process exits with a non-zero status.
-    """
+    """Write parameters, pick the scenario executable, and invoke the solver."""
 
     run_label = _build_run_label(params)
     run_dir = _ensure_run_directory(run_label)
     input_path = write_input_file(params, output_dir=run_dir)
 
-    solver_candidate = _resolve_executable(executable, executable_path)
+    scenario_id = _extract_scenario_id(params)
+    exe_map = executable_map or SCENARIO_EXECUTABLES
+    executable = executable_override or exe_map.get(scenario_id)
+    if executable is None:
+        raise ValueError(
+            f"No executable configured for scenario {scenario_id}. "
+            "Add it to SCENARIO_EXECUTABLES or pass executable_override."
+        )
+
+    solver_candidate = _ensure_executable(
+        executable,
+        scenario_id=scenario_id,
+        executable_path=executable_path,
+    )
 
     try:
         completed = subprocess.run(
@@ -147,7 +190,12 @@ def run_solver(
     return result
 
 
-def _resolve_executable(executable: str, executable_path: Optional[Path]) -> Path:
+def _resolve_executable(
+    executable: str,
+    executable_path: Optional[Path],
+    *,
+    search_dirs: Optional[Sequence[Path]] = None,
+) -> Path:
     """Resolve the solver executable path.
 
     Resolution order:
@@ -155,6 +203,7 @@ def _resolve_executable(executable: str, executable_path: Optional[Path]) -> Pat
     2) Environment variable WAVE_SOLVER_EXE.
     3) If 'executable' contains a path separator, resolve it relative to this file.
     4) Fallback to PATH lookup via shutil.which.
+    5) Additional search_dirs (e.g., the Fortran build output folder).
     """
 
     base_dir = Path(__file__).resolve().parent
@@ -178,6 +227,9 @@ def _resolve_executable(executable: str, executable_path: Optional[Path]) -> Pat
     if which:
         candidates.append(Path(which))
 
+    for search_dir in search_dirs or []:
+        candidates.append(Path(search_dir) / executable)
+
     for candidate in candidates:
         if candidate.exists():
             return candidate
@@ -188,6 +240,68 @@ def _resolve_executable(executable: str, executable_path: Optional[Path]) -> Pat
         f"Tried: {tried}. "
         "Set WAVE_SOLVER_EXE, pass executable_path, or add to PATH."
     )
+
+
+def _ensure_executable(
+    executable: str,
+    *,
+    scenario_id: int,
+    executable_path: Optional[Path],
+) -> Path:
+    """Resolve the solver binary; auto-compile if missing.
+
+    The build uses a simple gfortran invocation with sources defined per
+    scenario in SCENARIO_SOURCES. Compiler and flags can be overridden via
+    environment variables WAVE_SOLVER_FC and WAVE_SOLVER_FFLAGS.
+    """
+
+    try:
+        return _resolve_executable(
+            executable, executable_path, search_dirs=[EXECUTABLE_DIR]
+        )
+    except FileNotFoundError:
+        pass
+
+    sources = SCENARIO_SOURCES.get(scenario_id)
+    if sources is None:
+        raise FileNotFoundError(
+            f"Missing executable {executable} and no sources registered "
+            f"for scenario {scenario_id}."
+        )
+
+    output_path = (
+        Path(executable_path)
+        if executable_path is not None
+        else EXECUTABLE_DIR / executable
+    )
+
+    _build_executable(output_path, sources)
+
+    return _resolve_executable(
+        str(output_path), executable_path=None, search_dirs=[EXECUTABLE_DIR]
+    )
+
+
+def _build_executable(output_path: Path, sources: Sequence[str]) -> None:
+    """Compile Fortran sources into an executable if missing."""
+
+    compiler = os.getenv("WAVE_SOLVER_FC", "gfortran")
+    extra_flags = os.getenv("WAVE_SOLVER_FFLAGS", "-O2").split()
+
+    src_dir = EXECUTABLE_DIR
+    cmd = [compiler, *extra_flags]
+    cmd.extend(str(src_dir / src) for src in sources)
+    cmd.extend(["-o", str(output_path)])
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        subprocess.run(cmd, check=True, cwd=src_dir, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            "Automatic build failed. "
+            f"Command: {' '.join(cmd)}\nstdout: {exc.stdout}\nstderr: {exc.stderr}"
+        ) from exc
 
 
 def _rename_run_outputs(run_dir: Path, run_label: str) -> None:
@@ -229,13 +343,15 @@ def parse_output_files(run_dir: Path) -> Dict[str, Any]:
 
 
 def run_scenario1(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Placeholder runner for scenario 1 (Dirichlet).
+    """Run the Dirichlet boundary executable (scenario 1)."""
 
-    TODO: replace this with a dedicated call into the Fortran solver when the
-    scenario-specific entry point is available.
-    """
+    return run_solver(params, executable_override=SCENARIO_EXECUTABLES[1])
 
-    return run_solver(params)
+
+def run_scenario2(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Run the Neumann boundary executable (scenario 2)."""
+
+    return run_solver(params, executable_override=SCENARIO_EXECUTABLES[2])
 
 
 def run_batch(parameter_sets: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
